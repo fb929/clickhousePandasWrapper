@@ -2,3 +2,15 @@
 name = "clickhousePandasWrapper"
 version = "0.0.0"
 readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Grigory Efimov", email = "grigory.efimov@gmail.com"},
+]
+maintainers = [
+    {name = "Grigory Efimov", email = "grigory.efimov@gmail.com"},
+]
+
+[project.urls]
+Homepage = "https://github.com/fb929/clickhousePandasWrapper"
+Documentation = "https://github.com/fb929/clickhousePandasWrapper"
+Repository = "https://github.com/fb929/clickhousePandasWrapper"
