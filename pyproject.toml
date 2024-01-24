@@ -1,0 +1,4 @@
+[project]
+name = "clickhousePandasWrapper"
+version = "0.0.0"
+readme = "README.md"
