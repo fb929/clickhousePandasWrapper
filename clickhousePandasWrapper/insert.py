@@ -122,7 +122,7 @@ SETTINGS index_granularity = 8192
                 cleanColumn[cleanColumnName] = cleanColumnValue[0]
                 # expand clean data sql
                 alterTable = f"{alterTable} AND `{cleanColumnName}` = '{cleanColumnValue[0]}'"
-            if cleanColumn:
+            if not cleanColumn:
                 self.logger.error(f"{defName}: failed get values for columns '{cleanDataWhereColumns}', columnNames={df.columns.values.tolist()}, df.sample='{df.sample(n=5)}'")
                 return False
         # }}
@@ -152,7 +152,7 @@ SETTINGS index_granularity = 8192
             try:
                 df[partitionBy] = pd.to_datetime(df[partitionBy]).dt.tz_convert(None)
             except Exception as e:
-                self.logger.warning(f"{defName}: failed convert dtype to datetime, column={partitionBy}, error='{str(e)}'")
+                self.logger.warning(f"{defName}: failed convert dtype to datetime, skipped, column={partitionBy}, error='{str(e)}'")
             else:
                 self.logger.debug(f"{defName}: column={partitionBy} not have datetime64 format, converted")
 
