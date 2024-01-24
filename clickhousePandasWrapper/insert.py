@@ -147,15 +147,6 @@ SETTINGS index_granularity = 8192
         if not isinstance(cleanDataWhereColumns, list):
             cleanDataWhereColumns = [cleanDataWhereColumns]
 
-        # check datetime in df
-        if not pd.api.types.is_datetime64_ns_dtype(df[partitionBy]):
-            try:
-                df[partitionBy] = pd.to_datetime(df[partitionBy]).dt.tz_convert(None)
-            except Exception as e:
-                self.logger.warning(f"{defName}: failed convert dtype to datetime, skipped, column={partitionBy}, error='{str(e)}'")
-            else:
-                self.logger.debug(f"{defName}: column={partitionBy} not have datetime64 format, converted")
-
         # check table exists
         try:
             tables = self.ch.execute(f'SHOW TABLES FROM {db}')
