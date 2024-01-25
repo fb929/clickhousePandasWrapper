@@ -51,6 +51,15 @@ clickhouseInserter.insertDataInClickhouse(df=df,table='test')
         except Exception as e:
             raise Exception(f"failed create database={self.db} in clickhouse: host={self.host}, port={self.port}, error='{str(e)}'")
 
+    def dfSample(self, df):
+        """
+        safe way to get df sample
+        """
+
+        sampleSize = min(len(df), 5)
+        sampleData = df.sample(n=sampleSize)
+        return sampleData
+
     def pandasToClickhouseType(self, columnName, pandasType):
         """
         matching data type from pandas to clickhouse
@@ -79,7 +88,7 @@ clickhouseInserter.insertDataInClickhouse(df=df,table='test')
         defName = inspect.stack()[0][3]
 
         self.logger.debug(f"{defName}: dtypes={df.dtypes}")
-        self.logger.debug(f"{defName}: df.sample='{df.sample(n=5)}'")
+        self.logger.debug(f"{defName}: df.sample='{self.dfSample(df)}'")
         columnDefinitions = []
         columnsStr = ''
         for columnName, dtype in df.dtypes.items():
@@ -111,7 +120,7 @@ SETTINGS index_granularity = 8192
             dateFrom = str(min(df[partitionBy]))
             dateTo = str(max(df[partitionBy]))
         except Exception as e:
-            self.logger.error(f"{defName}: failed get max and min for column={partitionBy} in df, error={str(e)}, df.sample='{df.sample(n=5)}'")
+            self.logger.error(f"{defName}: failed get max and min for column={partitionBy} in df, error={str(e)}, df.sample='{self.dfSample(df)}'")
             return False
 
         # basic sql for clean data
@@ -129,13 +138,13 @@ SETTINGS index_granularity = 8192
                 else:
                     cleanColumnName = cleanColumnKey
                 if len(cleanColumnValue) != 1:
-                    self.logger.error(f"{defName}: values for column='{cleanColumnKey}' values is not unique, cleanColumnValue='{cleanColumnValue}, df.sample='{df.sample(n=5)}'")
+                    self.logger.error(f"{defName}: values for column='{cleanColumnKey}' values is not unique, cleanColumnValue='{cleanColumnValue}, df.sample='{self.dfSample(df)}'")
                     return False
                 cleanColumn[cleanColumnName] = cleanColumnValue[0]
                 # expand clean data sql
                 alterTable = f"{alterTable} AND `{cleanColumnName}` = '{cleanColumnValue[0]}'"
             if not cleanColumn:
-                self.logger.error(f"{defName}: failed get values for columns '{cleanDataWhereColumns}', columnNames={df.columns.values.tolist()}, df.sample='{df.sample(n=5)}'")
+                self.logger.error(f"{defName}: failed get values for columns '{cleanDataWhereColumns}', columnNames={df.columns.values.tolist()}, df.sample='{self.dfSample(df)}'")
                 return False
         # }}
 
