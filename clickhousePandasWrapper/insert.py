@@ -1,6 +1,6 @@
 import logging
+import re
 import inspect
-import io
 import pandas as pd
 import clickhouse_driver
 
@@ -25,8 +25,15 @@ clickhouseInserter = clickhousePandasWrapper.Insert(host='127.0.0.1', port='9000
 clickhouseInserter.insertDataInClickhouse(df=df,table='test')
 ```
     """
-    def __init__(self, host='127.0.0.1', port=9000, db='default', columnTypeMap=columnTypeMap):
+    def __init__(self, host='127.0.0.1', port=9000, db='default', columnTypeMap=columnTypeMap, logLevel=None):
         self.logger = logging.getLogger(self.__class__.__name__)
+        if logLevel:
+            if re.match(r"^(warn|warning)$", logLevel, re.IGNORECASE):
+                self.logger.setLevel(logging.WARNING)
+            elif re.match(r"^debug$", logLevel, re.IGNORECASE):
+                self.logger.setLevel(logging.DEBUG)
+            else:
+                self.logger.setLevel(logging.INFO)
         args = locals()
         for argName, argValue in args.items():
             if argName != 'self':
@@ -49,8 +56,11 @@ clickhouseInserter.insertDataInClickhouse(df=df,table='test')
         matching data type from pandas to clickhouse
         """
 
+        defName = inspect.stack()[0][3]
         mapping = {
+            'int32': 'Int32',
             'int64': 'Int64',
+            'float32': 'Float32',
             'float64': 'Float64',
             'object': 'String',
         }
@@ -68,6 +78,8 @@ clickhouseInserter.insertDataInClickhouse(df=df,table='test')
 
         defName = inspect.stack()[0][3]
 
+        self.logger.debug(f"{defName}: dtypes={df.dtypes}")
+        self.logger.debug(f"{defName}: df.sample='{df.sample(n=5)}'")
         columnDefinitions = []
         columnsStr = ''
         for columnName, dtype in df.dtypes.items():
@@ -190,7 +202,7 @@ SETTINGS index_granularity = 8192
                 settings={ "use_numpy": True },
             )
         except Exception as e:
-            self.logger.error(f"{defName} failed insert_dataframe in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
+            self.logger.error(f"{defName}: failed insert_dataframe in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
             return False
         # }}
 
