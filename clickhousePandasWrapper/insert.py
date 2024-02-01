@@ -150,7 +150,32 @@ SETTINGS index_granularity = 8192
 
         return alterTable
 
-    def insertDataInClickhouse(self, df, table, db=None, cleanDataInDateRange=True, cleanDataWhereColumns=list(), partitionBy='date', orderBy='date'):
+    def syncTableSchema(self,df,table,db):
+        """
+        add columns if not exist
+        """
+
+        defName = inspect.stack()[0][3]
+        self.logger.info(f"{defName}: sync table schema in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}")
+        try:
+            columnsInfo = self.ch.execute(f"DESCRIBE TABLE {db}.{table}")
+            columnNames = [column[0] for column in columnsInfo]
+        except Exception as e:
+            raise Exception(f"{defName}: failed get columns names from clickhouse for table: host={self.host}, port={self.port}, db={db}, table={table}")
+        self.logger.debug(f"{defName}: columnNames={columnNames}")
+        for columnName, dtype in df.dtypes.items():
+            if columnName in columnNames:
+                continue
+            chType = self.pandasToClickhouseType(columnName,dtype)
+            sql = f"ALTER TABLE {db}.{table} ADD COLUMN `{columnName}` {chType}"
+            self.logger.info(f"{defName}: sql='{sql}'")
+            try:
+                self.ch.execute(sql)
+            except Exception as e:
+                raise Exception(f"{defName}: failed execute in clickhouse, sql={sql}: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
+        return None
+
+    def insertDataInClickhouse(self, df, table, db=None, cleanDataInDateRange=True, cleanDataWhereColumns=list(), partitionBy='date', orderBy='date', retryCounter=0):
         """
         insert dataframe in clickhouse
         cleanDataInDateRange - delete data in date range before insert
@@ -211,8 +236,18 @@ SETTINGS index_granularity = 8192
                 settings={ "use_numpy": True },
             )
         except Exception as e:
-            self.logger.error(f"{defName}: failed insert_dataframe in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
-            return False
+            if e.code == 16: # NO_SUCH_COLUMN_IN_TABLE https://github.com/mymarilyn/clickhouse-driver/blob/master/clickhouse_driver/errors.py#L17
+                self.logger.warning(f"{defName}: schema in clickhouse table does not match df schema: host={self.host}, port={self.port}, db={db}, table={table}'")
+                self.syncTableSchema(df,table,db)
+                # retry insert
+                if retryCounter >= 1:
+                    #self.logger.error(f"{defName}: failed insert_dataframe in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
+                    raise Exception(f"{defName}: failed insert_dataframe in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
+                else:
+                    self.insertDataInClickhouse(df,table,db,cleanDataInDateRange,cleanDataWhereColumns,partitionBy,orderBy,retryCounter+1)
+            else:
+                self.logger.error(f"{defName}: failed insert_dataframe in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
+                return False
         # }}
 
         return True
