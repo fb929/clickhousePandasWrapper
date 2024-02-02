@@ -174,7 +174,7 @@ SETTINGS index_granularity = 8192
                 continue
             chType = self.pandasToClickhouseType(columnName,dtype)
             sql = f"ALTER TABLE {db}.{table} ADD COLUMN `{columnName}` {chType}"
-            self.logger.info(f"{defName}: sql='{sql}'")
+            self.logger.debug(f"{defName}: sql='{sql}'")
             try:
                 self.ch.execute(sql)
             except Exception as e:
@@ -221,7 +221,7 @@ SETTINGS index_granularity = 8192
             if cleanDataInDateRange:
                 alterTable = self.generateAlterQuery(df,table,db,partitionBy,cleanDataWhereColumns)
                 # clean data
-                self.logger.info(alterTable)
+                self.logger.debug(alterTable)
                 try:
                     self.ch.execute(alterTable)
                 except Exception as e:
@@ -244,7 +244,7 @@ SETTINGS index_granularity = 8192
                 columnsString = columnsString +","
             columnsString = columnsString +"`"+ column +"`"
         insertString = 'INSERT INTO %s.%s (%s) VALUES' % (db,table,columnsString)
-        self.logger.info(insertString)
+        self.logger.debug(insertString)
         try:
             self.ch.insert_dataframe(
                 insertString,
@@ -255,9 +255,8 @@ SETTINGS index_granularity = 8192
             if e.code == 16: # NO_SUCH_COLUMN_IN_TABLE https://github.com/mymarilyn/clickhouse-driver/blob/master/clickhouse_driver/errors.py#L17
                 self.logger.warning(f"{defName}: schema in clickhouse table does not match df schema: host={self.host}, port={self.port}, db={db}, table={table}'")
                 self.syncTableSchema(df,table,db)
-                # retry insert
+                # retry
                 if retryCounter >= 1:
-                    #self.logger.error(f"{defName}: failed insert_dataframe in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
                     raise Exception(f"{defName}: failed insert_dataframe in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
                 else:
                     return self.insertDataInClickhouse(df,table,db,cleanDataInDateRange,cleanDataWhereColumns,partitionBy,orderBy,retryCounter+1)
