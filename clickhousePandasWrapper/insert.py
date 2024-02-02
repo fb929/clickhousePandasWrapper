@@ -45,11 +45,17 @@ clickhouseInserter.insertDataInClickhouse(df=df,table='test')
             port=self.port,
         )
         self.logger.debug(f"created clickhouse client connect: host={self.host}, port={self.port}, db={self.db}")
-        # create database is not exists
+        self.createDatabase()
+
+    def createDatabase(self,db=None):
+        # default args {{
+        if db == None:
+            db = self.db
+        # }}
         try:
-            self.ch.execute(f"CREATE DATABASE IF NOT EXISTS {self.db}")
+            self.ch.execute(f"CREATE DATABASE IF NOT EXISTS {db}")
         except Exception as e:
-            raise Exception(f"failed create database={self.db} in clickhouse: host={self.host}, port={self.port}, error='{str(e)}'")
+            raise Exception(f"failed create database={db} in clickhouse: host={self.host}, port={self.port}, error='{str(e)}'")
 
     def dfSample(self, df):
         """
@@ -193,12 +199,22 @@ SETTINGS index_granularity = 8192
         if not isinstance(cleanDataWhereColumns, list):
             cleanDataWhereColumns = [cleanDataWhereColumns]
 
-        # check table exists
+        # check table exists {{
         try:
             tables = self.ch.execute(f'SHOW TABLES FROM {db}')
         except Exception as e:
-            self.logger.error(f"{defName}: failed execute in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
-            return False
+            if e.code == 81: # UNKNOWN_DATABASE https://github.com/mymarilyn/clickhouse-driver/blob/master/clickhouse_driver/errors.py#L82C5-L82C21
+                self.logger.warning(f"{defName}: database not found in clickhouse, creating: host={self.host}, port={self.port}, db={db}, table={table}'")
+                self.createDatabase(db)
+                # retry
+                if retryCounter >= 1:
+                    raise Exception(f"{defName}: failed execute in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
+                else:
+                    return self.insertDataInClickhouse(df,table,db,cleanDataInDateRange,cleanDataWhereColumns,partitionBy,orderBy,retryCounter+1)
+            else:
+                self.logger.error(f"{defName}: failed execute in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
+                return False
+        # }}
         tableExists = any(tbl[0] == table for tbl in tables)
         if tableExists:
             # clean exists data in table {{
@@ -244,7 +260,7 @@ SETTINGS index_granularity = 8192
                     #self.logger.error(f"{defName}: failed insert_dataframe in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
                     raise Exception(f"{defName}: failed insert_dataframe in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
                 else:
-                    self.insertDataInClickhouse(df,table,db,cleanDataInDateRange,cleanDataWhereColumns,partitionBy,orderBy,retryCounter+1)
+                    return self.insertDataInClickhouse(df,table,db,cleanDataInDateRange,cleanDataWhereColumns,partitionBy,orderBy,retryCounter+1)
             else:
                 self.logger.error(f"{defName}: failed insert_dataframe in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
                 return False
