@@ -195,8 +195,8 @@ SETTINGS index_granularity = 8192
         """
         insert dataframe in clickhouse
         cleanDataInDateRange - delete data in date range before insert
-        partitionBy - column name for partitioning
-        orderBy - column name(s) for primary keys
+        partitionByTable - column name for partitioning
+        orderBy - string for generate 'order by'
         """
 
         defName = inspect.stack()[0][3]
@@ -222,7 +222,17 @@ SETTINGS index_granularity = 8192
                 if retryCounter >= 1:
                     raise Exception(f"{defName}: failed execute in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
                 else:
-                    return self.insertDataInClickhouse(df,table,db,cleanDataInDateRange,cleanDataWhereColumns,partitionBy,orderBy,retryCounter+1)
+                    return self.insertDataInClickhouse(
+                        df = df,
+                        table = table,
+                        db = db,
+                        cleanDataInDateRange = cleanDataInDateRange,
+                        cleanDataWhereColumns = cleanDataWhereColumns,
+                        partitionByTable = partitionByTable,
+                        partitionByFunction = partitionByFunction,
+                        orderBy = orderBy,
+                        retryCounter+1,
+                    )
             else:
                 self.logger.error(f"{defName}: failed execute in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
                 return False
@@ -283,7 +293,17 @@ SETTINGS index_granularity = 8192
                 if retryCounter >= 1:
                     raise Exception(f"{defName}: failed insert_dataframe in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
                 else:
-                    return self.insertDataInClickhouse(df,table,db,cleanDataInDateRange,cleanDataWhereColumns,partitionBy,orderBy,retryCounter+1)
+                    return self.insertDataInClickhouse(
+                        df = df,
+                        table = table,
+                        db = db,
+                        cleanDataInDateRange = cleanDataInDateRange,
+                        cleanDataWhereColumns = cleanDataWhereColumns,
+                        partitionByTable = partitionByTable,
+                        partitionByFunction = partitionByFunction,
+                        orderBy = orderBy,
+                        retryCounter+1,
+                    )
             else:
                 self.logger.error(f"{defName}: failed insert_dataframe in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
                 return False
