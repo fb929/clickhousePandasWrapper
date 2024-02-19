@@ -231,7 +231,7 @@ SETTINGS index_granularity = 8192
                         partitionByTable = partitionByTable,
                         partitionByFunction = partitionByFunction,
                         orderBy = orderBy,
-                        retryCounter+1,
+                        retryCounter = retryCounter+1,
                     )
             else:
                 self.logger.error(f"{defName}: failed execute in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
@@ -302,7 +302,7 @@ SETTINGS index_granularity = 8192
                         partitionByTable = partitionByTable,
                         partitionByFunction = partitionByFunction,
                         orderBy = orderBy,
-                        retryCounter+1,
+                        retryCounter = retryCounter+1,
                     )
             else:
                 self.logger.error(f"{defName}: failed insert_dataframe in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
