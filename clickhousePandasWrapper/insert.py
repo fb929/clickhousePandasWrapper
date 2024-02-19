@@ -115,7 +115,7 @@ SETTINGS index_granularity = 8192
         self.logger.info(f"{defName}: create table sql='{sql}'")
         return sql
 
-    def generateAlterQuery(self, df, table, db, partitionBy, cleanDataWhereColumns=list()):
+    def generateAlterQuery(self, df, table, db, partitionByTable, cleanDataWhereColumns=list()):
         """
         generate alter table query
         """
@@ -123,14 +123,14 @@ SETTINGS index_granularity = 8192
         defName = inspect.stack()[0][3]
         # get date range
         try:
-            dateFrom = str(min(df[partitionBy]))
-            dateTo = str(max(df[partitionBy]))
+            dateFrom = str(min(df[partitionByTable]))
+            dateTo = str(max(df[partitionByTable]))
         except Exception as e:
-            self.logger.error(f"{defName}: failed get max and min for column={partitionBy} in df, error={str(e)}, df.sample='{self.dfSample(df)}'")
+            self.logger.error(f"{defName}: failed get max and min for column={partitionByTable} in df, error={str(e)}, df.sample='{self.dfSample(df)}'")
             return False
 
         # basic sql for clean data
-        alterTable = f"ALTER TABLE {db}.{table} DELETE WHERE {partitionBy} BETWEEN '{dateFrom}' AND '{dateTo}'"
+        alterTable = f"ALTER TABLE {db}.{table} DELETE WHERE {partitionByTable} BETWEEN '{dateFrom}' AND '{dateTo}'"
 
         # get values for cleanDataWhereColumns {{
         if cleanDataWhereColumns:
@@ -181,7 +181,17 @@ SETTINGS index_granularity = 8192
                 raise Exception(f"{defName}: failed execute in clickhouse, sql={sql}: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
         return None
 
-    def insertDataInClickhouse(self, df, table, db=None, cleanDataInDateRange=True, cleanDataWhereColumns=list(), partitionBy='date', orderBy='date', retryCounter=0):
+    def insertDataInClickhouse(self,
+            df,
+            table,
+            db=None,
+            cleanDataInDateRange=True,
+            cleanDataWhereColumns=list(),
+            partitionByTable='date',
+            partitionByFunction='toYYYYMM',
+            orderBy=None,
+            retryCounter=0
+        ):
         """
         insert dataframe in clickhouse
         cleanDataInDateRange - delete data in date range before insert
@@ -193,6 +203,8 @@ SETTINGS index_granularity = 8192
         # default args {{
         if db == None:
             db = self.db
+        if orderBy == None:
+            orderBy = partitionByTable
         # }}
 
         # check type cleanDataWhereColumns
@@ -219,7 +231,13 @@ SETTINGS index_granularity = 8192
         if tableExists:
             # clean exists data in table {{
             if cleanDataInDateRange:
-                alterTable = self.generateAlterQuery(df,table,db,partitionBy,cleanDataWhereColumns)
+                alterTable = self.generateAlterQuery(
+                    df = df,
+                    table = table,
+                    db = db,
+                    partitionByTable = partitionByTable,
+                    cleanDataWhereColumns = cleanDataWhereColumns,
+                )
                 # clean data
                 self.logger.debug(alterTable)
                 try:
@@ -230,7 +248,13 @@ SETTINGS index_granularity = 8192
             # }}
         else:
             # create table if not exists
-            query = self.generateCreateTableQuery(df,db,table,partitionBy,orderBy)
+            query = self.generateCreateTableQuery(
+                df = df,
+                db = db,
+                table = table,
+                partitionBy = partitionByFunction+'('+partitionByTable+')',
+                orderBy = orderBy,
+            )
             try:
                 self.ch.execute(query)
             except Exception as e:
