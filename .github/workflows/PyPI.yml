@@ -35,8 +35,12 @@ jobs:
           name: python-package-distributions
           path: dist/
       - name: Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2.0.4
         with:
+          name: Release ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
           fail_on_unmatched_files: true
           files: 'dist/*'
         env:
