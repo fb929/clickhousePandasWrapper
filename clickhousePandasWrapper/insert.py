@@ -26,7 +26,7 @@ clickhouseInserter.insertDataInClickhouse(df=df,table='test')
 ```
     """
     def __init__(self, host='127.0.0.1', port=9000, db='default', columnTypeMap=columnTypeMap, logLevel=None):
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = logging.getLogger(__name__)
         if logLevel:
             if re.match(r"^(warn|warning)$", logLevel, re.IGNORECASE):
                 self.logger.setLevel(logging.WARNING)
@@ -77,6 +77,7 @@ clickhouseInserter.insertDataInClickhouse(df=df,table='test')
             'int64': 'Int64',
             'float32': 'Float32',
             'float64': 'Float64',
+            'bool': 'Bool',
             'object': 'String',
         }
         if columnName in self.columnTypeMap:
@@ -86,7 +87,7 @@ clickhouseInserter.insertDataInClickhouse(df=df,table='test')
             # define type by pandas types
             return mapping.get(str(pandasType), 'String')
 
-    def generateCreateTableQuery(self, df, db, table, partitionBy, orderBy):
+    def generateCreateTableQuery(self, df, db, table, engine = 'MergeTree', partitionBy = None, orderBy = None, primaryKey = None, settings = 'index_granularity = 8192'):
         """
         generate create table query
         """
@@ -107,10 +108,23 @@ clickhouseInserter.insertDataInClickhouse(df=df,table='test')
 CREATE TABLE IF NOT EXISTS {db}.{table} (
 {columnsStr}
 )
-ENGINE MergeTree
+ENGINE {engine}
+"""
+        if primaryKey:
+            sql = sql + f"""
+PRIMARY KEY ({primaryKey})
+"""
+        if partitionBy:
+            sql = sql + f"""
 PARTITION BY ({partitionBy})
+"""
+        if orderBy:
+            sql = sql + f"""
 ORDER BY {orderBy}
-SETTINGS index_granularity = 8192
+"""
+        if settings:
+            sql = sql + f"""
+SETTINGS {settings}
 """
         self.logger.info(f"{defName}: create table sql='{sql}'")
         return sql
@@ -187,8 +201,10 @@ SETTINGS index_granularity = 8192
             db=None,
             cleanDataInDateRange=True,
             cleanDataWhereColumns=list(),
+            cleanAllData=False,
             partitionByTable='date',
             partitionByFunction='toYYYYMM',
+            primaryKey=None,
             orderBy=None,
             retryCounter=0
         ):
@@ -239,31 +255,39 @@ SETTINGS index_granularity = 8192
         # }}
         tableExists = any(tbl[0] == table for tbl in tables)
         if tableExists:
-            # clean exists data in table {{
-            if cleanDataInDateRange:
-                alterTable = self.generateAlterQuery(
-                    df = df,
-                    table = table,
-                    db = db,
-                    partitionByTable = partitionByTable,
-                    cleanDataWhereColumns = cleanDataWhereColumns,
-                )
+            # clean exists data in table
+            if cleanDataInDateRange or cleanAllData:
+                if cleanDataInDateRange:
+                    sql = self.generateAlterQuery(
+                        df = df,
+                        table = table,
+                        db = db,
+                        partitionByTable = partitionByTable,
+                        cleanDataWhereColumns = cleanDataWhereColumns,
+                    )
+                elif cleanAllData:
+                    sql = f"TRUNCATE TABLE IF EXISTS {db}.{table}"
                 # clean data
-                self.logger.debug(alterTable)
+                self.logger.debug(sql)
                 try:
-                    self.ch.execute(alterTable)
+                    self.ch.execute(sql)
                 except Exception as e:
                     self.logger.error(f"{defName}: failed execute in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
                     return False
-            # }}
+
         else:
             # create table if not exists
+            if partitionByFunction and partitionByTable:
+                partitionBy = partitionByFunction+'('+partitionByTable+')'
+            else:
+                partitionBy = None
             query = self.generateCreateTableQuery(
                 df = df,
                 db = db,
                 table = table,
-                partitionBy = partitionByFunction+'('+partitionByTable+')',
+                partitionBy = partitionBy,
                 orderBy = orderBy,
+                primaryKey = primaryKey,
             )
             try:
                 self.ch.execute(query)
@@ -279,6 +303,11 @@ SETTINGS index_granularity = 8192
             columnsString = columnsString +"`"+ column +"`"
         insertString = 'INSERT INTO %s.%s (%s) VALUES' % (db,table,columnsString)
         self.logger.debug(insertString)
+
+        # convert df type objects to string
+        objectColumns = df.select_dtypes(include=[object]).columns
+        df[objectColumns] = df[objectColumns].astype(str)
+
         try:
             self.ch.insert_dataframe(
                 insertString,
@@ -286,6 +315,7 @@ SETTINGS index_granularity = 8192
                 settings={ "use_numpy": True },
             )
         except Exception as e:
+            self.logger.warning(f"{defName}: failed insert error={str(e)}")
             if e.code == 16: # NO_SUCH_COLUMN_IN_TABLE https://github.com/mymarilyn/clickhouse-driver/blob/master/clickhouse_driver/errors.py#L17
                 self.logger.warning(f"{defName}: schema in clickhouse table does not match df schema: host={self.host}, port={self.port}, db={db}, table={table}'")
                 self.syncTableSchema(df,table,db)
