@@ -3,8 +3,43 @@ import re
 import inspect
 import pandas as pd
 import clickhouse_driver
+import json
 
-columnTypeMap = {
+pandasTypeToClickhouseTypeMap = {
+    'uint8': 'UInt8',
+    'uint16': 'UInt16',
+    'uint32': 'UInt32',
+    'uint64': 'UInt64',
+    'int8': 'Int8',
+    'int16': 'Int16',
+    'int32': 'Int32',
+    'int64': 'Int64',
+    'float16': 'Float32',
+    'float32': 'Float32',
+    'float64': 'Float64',
+    'float128': 'Float64',
+    'object': 'String',
+    'datetime64[D]': 'Date',
+    'datetime64[ns]': 'DateTime',
+    'bool': 'Bool',
+}
+clickhouseTypeToPandasTypeMap = {
+    'UInt8': 'uint8',
+    'UInt16': 'uint16',
+    'UInt32': 'uint32',
+    'UInt64': 'uint64',
+    'Int8': 'int8',
+    'Int16': 'int16',
+    'Int32': 'int32',
+    'Int64': 'int64',
+    'Float32': 'float32',
+    'Float64': 'float64',
+    'String': 'object',
+    'Date': 'datetime64[D]',
+    'DateTime': 'datetime64[ns]',
+    'Bool': 'bool',
+}
+columnNameToTypeMap = {
     'Date': 'DateTime64(3)',
     'date': 'DateTime64(3)',
 }
@@ -25,7 +60,16 @@ clickhouseInserter = clickhousePandasWrapper.Insert(host='127.0.0.1', port='9000
 clickhouseInserter.insertDataInClickhouse(df=df,table='test')
 ```
     """
-    def __init__(self, host='127.0.0.1', port=9000, db='default', columnTypeMap=columnTypeMap, logLevel=None):
+    def __init__(self,
+        host = '127.0.0.1',
+        port = 9000,
+        db = 'default',
+        columnTypeMap = None, # backward compatibility, new variable columnNameToTypeMap
+        columnNameToTypeMap = columnNameToTypeMap,
+        logLevel = None,
+        pandasTypeToClickhouseTypeMap = pandasTypeToClickhouseTypeMap,
+        clickhouseTypeToPandasTypeMap = clickhouseTypeToPandasTypeMap,
+    ):
         self.logger = logging.getLogger(__name__)
         if logLevel:
             if re.match(r"^(warn|warning)$", logLevel, re.IGNORECASE):
@@ -38,6 +82,10 @@ clickhouseInserter.insertDataInClickhouse(df=df,table='test')
         for argName, argValue in args.items():
             if argName != 'self':
                 setattr(self, argName, argValue)
+
+        # backward compatibility
+        if columnTypeMap:
+            self.columnNameToTypeMap = columnTypeMap
 
         # create clickhouse client connect
         self.ch = clickhouse_driver.Client(
@@ -72,20 +120,12 @@ clickhouseInserter.insertDataInClickhouse(df=df,table='test')
         """
 
         defName = inspect.stack()[0][3]
-        mapping = {
-            'int32': 'Int32',
-            'int64': 'Int64',
-            'float32': 'Float32',
-            'float64': 'Float64',
-            'bool': 'Bool',
-            'object': 'String',
-        }
-        if columnName in self.columnTypeMap:
+        if columnName in self.columnNameToTypeMap:
             # define type by column name
-            return self.columnTypeMap.get(columnName)
+            return self.columnNameToTypeMap.get(columnName)
         else:
             # define type by pandas types
-            return mapping.get(str(pandasType), 'String')
+            return self.pandasTypeToClickhouseTypeMap.get(str(pandasType), 'String')
 
     def generateCreateTableQuery(self, df, db, table, engine = 'MergeTree', partitionBy = None, orderBy = None, primaryKey = None, settings = 'index_granularity = 8192'):
         """
@@ -94,7 +134,7 @@ clickhouseInserter.insertDataInClickhouse(df=df,table='test')
 
         defName = inspect.stack()[0][3]
 
-        self.logger.debug(f"{defName}: dtypes={df.dtypes}")
+        self.logger.debug(f"{defName}: df.dtypes='{df.dtypes}'")
         self.logger.debug(f"{defName}: df.sample='{self.dfSample(df)}'")
         columnDefinitions = []
         columnsStr = ''
@@ -194,6 +234,48 @@ SETTINGS {settings}
             except Exception as e:
                 raise Exception(f"{defName}: failed execute in clickhouse, sql={sql}: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
         return None
+
+    def syncDataTypes(self,df,table,db):
+        """
+        Sync data types from clickhouse table to dataframe.
+        When working with small-sized dataframes, it often happens that the data type changes drastically.
+        For example, one dataframe might contain a float, while the next one might have None (string).
+        """
+
+        defName = inspect.stack()[0][3]
+        self.logger.debug(f"{defName}: sync data types from clickhouse to df: host={self.host}, port={self.port}, db={db}, table={table}")
+        query = f"DESCRIBE TABLE {db}.{table}"
+        try:
+            columnsInfo = self.ch.execute(query)
+        except Exception as e:
+            raise Exception(f"{defName}: failed execute: query='{query}' host={self.host}, port={self.port}, db={db}, table={table}")
+
+        for columnInfo in columnsInfo:
+            chColumnName = columnInfo[0]
+            chColumnType = columnInfo[1]
+            dfColumntType = self.clickhouseTypeToPandasTypeMap.get(chColumnType, 'object')
+            if chColumnName in df.columns:
+                # convert arrays to string
+                if df[chColumnName].apply(lambda x: isinstance(x, list)).any():
+                    self.logger.debug(f"{defName}: chColumnName={chColumnName} convert list to string")
+                    df[chColumnName] = df[chColumnName].astype("string")
+
+                # None not possible value for int\float types
+                if dfColumntType in ['int8', 'int16', 'int32', 'int64', 'uint8', 'uint16', 'uint32', 'uint64', 'float16', 'float32', 'float64']:
+                    df[chColumnName] = df[chColumnName].fillna(0)
+
+                # fix astype for String
+                if chColumnType == 'String':
+                    df[chColumnName] = df[chColumnName].astype("string")
+
+                # try convert astype for df
+                try:
+                    self.logger.debug(f"{defName}: set astype={dfColumntType}, chColumnName={chColumnName}, chColumnType={chColumnType}")
+                    df[chColumnName] = df[chColumnName].astype(dfColumntType)
+                except Exception as e:
+                    raise Exception(f"{defName}: failed run astype. chColumnName='{chColumnName}', chColumnType='{chColumnType}', dfColumntType='{dfColumntType}', dfValues='{df[chColumnName].to_string()}', error='{str(e)}'")
+
+        return df
 
     def insertDataInClickhouse(self,
             df,
@@ -304,9 +386,8 @@ SETTINGS {settings}
         insertString = 'INSERT INTO %s.%s (%s) VALUES' % (db,table,columnsString)
         self.logger.debug(insertString)
 
-        # convert df type objects to string
-        objectColumns = df.select_dtypes(include=[object]).columns
-        df[objectColumns] = df[objectColumns].astype(str)
+        # sync data typs from clickhouse to df
+        df = self.syncDataTypes(df,table,db)
 
         try:
             self.ch.insert_dataframe(
@@ -315,7 +396,11 @@ SETTINGS {settings}
                 settings={ "use_numpy": True },
             )
         except Exception as e:
-            self.logger.warning(f"{defName}: failed insert error={str(e)}")
+            pd.set_option('display.max_rows', None)
+            pd.set_option('display.max_columns', None)
+            self.logger.warning(f"{defName}: failed insert error='{str(e)}'")
+            self.logger.warning(f"{defName}: df.dtypes='{df.dtypes}'")
+            self.logger.warning(f"{defName}: df='{json.dumps(json.loads(df.to_json(orient='table')), indent=4)}'")
             if e.code == 16: # NO_SUCH_COLUMN_IN_TABLE https://github.com/mymarilyn/clickhouse-driver/blob/master/clickhouse_driver/errors.py#L17
                 self.logger.warning(f"{defName}: schema in clickhouse table does not match df schema: host={self.host}, port={self.port}, db={db}, table={table}'")
                 self.syncTableSchema(df,table,db)
