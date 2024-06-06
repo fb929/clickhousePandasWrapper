@@ -258,7 +258,10 @@ SETTINGS {settings}
                 # convert arrays to string
                 if df[chColumnName].apply(lambda x: isinstance(x, list)).any():
                     self.logger.debug(f"{defName}: chColumnName={chColumnName} convert list to string")
-                    df[chColumnName] = df[chColumnName].astype("string")
+                    try:
+                        df[chColumnName] = df[chColumnName].astype("string")
+                    except Exception as e:
+                        self.logger.warning(f"{defName}: failed convert dataframe type for column='{chColumnName}' to type='string', error={str(e)}")
 
                 # None not possible value for int\float types
                 if dfColumntType in ['int8', 'int16', 'int32', 'int64', 'uint8', 'uint16', 'uint32', 'uint64', 'float16', 'float32', 'float64']:
@@ -266,7 +269,10 @@ SETTINGS {settings}
 
                 # fix astype for String
                 if chColumnType == 'String':
-                    df[chColumnName] = df[chColumnName].astype("string")
+                    try:
+                        df[chColumnName] = df[chColumnName].astype("string")
+                    except Exception as e:
+                        self.logger.warning(f"{defName}: failed convert dataframe type for column='{chColumnName}' to type='string', error={str(e)}")
 
                 # try convert astype for df
                 try:
