@@ -63,6 +63,9 @@ clickhouseInserter.insertDataInClickhouse(df=df,table='test')
     def __init__(self,
         host = '127.0.0.1',
         port = 9000,
+        connect_timeout = 10,
+        send_receive_timeout = 300,
+        sync_request_timeout = 5,
         db = 'default',
         columnTypeMap = None, # backward compatibility, new variable columnNameToTypeMap
         columnNameToTypeMap = columnNameToTypeMap,
@@ -89,8 +92,11 @@ clickhouseInserter.insertDataInClickhouse(df=df,table='test')
 
         # create clickhouse client connect
         self.ch = clickhouse_driver.Client(
-            host=self.host,
-            port=self.port,
+            host = self.host,
+            port = self.port,
+            connect_timeout = self.connect_timeout,
+            send_receive_timeout = self.send_receive_timeout,
+            sync_request_timeout = self.sync_request_timeout,
         )
         self.logger.debug(f"created clickhouse client connect: host={self.host}, port={self.port}, db={self.db}")
         self.createDatabase()
