@@ -410,9 +410,7 @@ SETTINGS {settings}
         except Exception as e:
             pd.set_option('display.max_rows', None)
             pd.set_option('display.max_columns', None)
-            self.logger.warning(f"{defName}: failed insert error='{str(e)}'")
-            self.logger.warning(f"{defName}: df.dtypes='{df.dtypes}'")
-            self.logger.warning(f"{defName}: df='{json.dumps(json.loads(df.to_json(orient='table')), indent=4)}'")
+            self.logger.warning(f"{defName}: failed insert, error handling'")
             if e.code == 16: # NO_SUCH_COLUMN_IN_TABLE https://github.com/mymarilyn/clickhouse-driver/blob/master/clickhouse_driver/errors.py#L17
                 self.logger.warning(f"{defName}: schema in clickhouse table does not match df schema: host={self.host}, port={self.port}, db={db}, table={table}'")
                 self.syncTableSchema(df,table,db)
@@ -432,6 +430,8 @@ SETTINGS {settings}
                         retryCounter = retryCounter+1,
                     )
             else:
+                self.logger.debug(f"{defName}: df.dtypes='{df.dtypes}'")
+                self.logger.debug(f"{defName}: df='{json.dumps(json.loads(df.to_json(orient='table')), indent=4)}'")
                 self.logger.error(f"{defName}: failed insert_dataframe in clickhouse: host={self.host}, port={self.port}, db={db}, table={table}, error='{str(e)}'")
                 return False
         # }}
